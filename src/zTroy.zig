@@ -1,2 +1,1 @@
-const std = @import("std");
-
+pub const ini = @import("ini.zig");
