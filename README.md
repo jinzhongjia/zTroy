@@ -2,6 +2,8 @@
 
 A versatile libary.
 
+The goal of this library is to create a general library of basic functional functions
+
 > Now, this library is developing!
 
 ## Feature
