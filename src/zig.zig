@@ -17,9 +17,9 @@ pub fn FnParamsToTuple(comptime params: []const FnParam) type {
                     .name = std.fmt.comptimePrint("{}", .{i}),
                 };
             } else {
-                // TODO: why the param.type can be null????
+                // when param type is anytype, the type is null
                 const error_message = std.fmt.comptimePrint(
-                    "sorry the params has a element which not has type {any}",
+                    "sorry the param is anytype!",
                     .{param},
                 );
                 @compileError(error_message);
