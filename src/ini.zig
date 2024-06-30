@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const eql = std.mem.eql;
+const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 
 pub const Section = struct {
@@ -99,8 +100,9 @@ pub const LineStruct = union(enum) {
 const SPACE = 32;
 
 /// this function will parse a line
-pub fn parseLine(str: []const u8) ?LineStruct {
-    const no_comment_str = trimComment(str) orelse return null;
+/// when return null, that mean current line is whitespace or comment
+pub fn parseLine(line: []const u8) ?LineStruct {
+    const no_comment_str = trimComment(line) orelse return null;
     const no_whitespace_str = trim(no_comment_str) orelse return null;
 
     if (checkSection(no_whitespace_str, false, false)) |section_name| {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const Dir = std.fs.Dir;
 
+/// this will detect the file whether exist
 pub fn fileExist(dir: Dir, sub_path: []const u8) !bool {
     var dest_file = dir.openFile(sub_path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
