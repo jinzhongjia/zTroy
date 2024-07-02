@@ -6,15 +6,107 @@ const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 
 pub const KeyValueHashMap = std.StringHashMap([]const u8);
+pub const SectionHashMap = std.StringHashMap(Section);
+
+pub const INI = struct {
+    content: SectionHashMap,
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator) INI {
+        return INI{
+            .content = SectionHashMap.init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    /// deinit the ini struct
+    pub fn deinit(self: *INI) void {
+        defer self.content.deinit();
+        var iterate = self.content.iterator();
+        while (iterate.next()) |section|
+            section.value_ptr.deinit();
+    }
+
+    pub fn sectionExist(self: *INI, name: []const u8) bool {
+        return self.content.getKey(name) != null;
+    }
+
+    pub fn getSectionKeyValue(self: *INI, name: []const u8, key: []const u8) ?[]const u8 {
+        const section_ptr = self.content.getPtr(name) orelse return null;
+        return section_ptr.getValue(key);
+    }
+
+    pub fn getSection(self: *INI, name: []const u8) ?*Section {
+        return self.content.getPtr(name);
+    }
+
+    pub fn setSectionKeyValue(self: *INI, name: []const u8, key: []const u8, value: []const u8) !void {
+        const result = try self.content.getOrPut(name);
+        if (!result.found_existing)
+            result.value_ptr.* = Section.init(name, self.allocator);
+
+        const section_ptr = result.value_ptr;
+        try section_ptr.setValue(key, value);
+    }
+
+    pub fn setSectionWithKeyValue(self: *INI, name: []const u8, key_value: KeyValue) !void {
+        const result = try self.content.getOrPut(name);
+        if (!result.found_existing)
+            result.value_ptr.* = Section.init(name, self.allocator);
+
+        const section_ptr = result.value_ptr;
+        try section_ptr.setWithKeyValue(key_value);
+    }
+
+    pub fn deleteSection(self: *INI, name: []const u8) void {
+        if (self.content.getPtr(name)) |section| {
+            section.deinit();
+            _ = self.content.remove(name);
+        }
+    }
+
+    // pub fn parseFile(self: *Section, file: File) !void {
+    //     const line = try file.reader().readUntilDelimiterOrEofAlloc(self.allocator, '\n', 150);
+    //     defer self.allocator.free(line);
+    //     if (parseLine(line)) |val| {}
+    // }
+};
+
+test "INI test" {
+    var ini = INI.init(std.testing.allocator);
+    defer ini.deinit();
+
+    try expect(!ini.sectionExist("general"));
+
+    try ini.setSectionKeyValue("general", "name", "jinzhongjia");
+    try expect(eql(u8, ini.getSectionKeyValue("general", "name").?, "jinzhongjia"));
+
+    try ini.setSectionWithKeyValue("general", KeyValue.init("mail", "mail@nvimer.org"));
+    try expect(eql(u8, ini.getSectionKeyValue("general", "mail").?, "mail@nvimer.org"));
+
+    ini.getSection("general").?.deleteKey("name");
+    try expect(ini.getSectionKeyValue("general", "name") == null);
+
+    try expect(ini.sectionExist("general"));
+
+    ini.deleteSection("general");
+
+    try expect(!ini.sectionExist("general"));
+}
 
 pub const Section = struct {
     name: []const u8,
     content: KeyValueHashMap,
+    allocator: Allocator,
 
     /// init the section, note the name will not owner by section
     /// but section will use param name
     pub fn init(name: []const u8, allocator: Allocator) Section {
-        return .{ .name = name, .content = KeyValueHashMap.init(allocator) };
+        return .{
+            .name = name,
+            .content = KeyValueHashMap.init(allocator),
+            .allocator = allocator,
+        };
     }
 
     pub fn deinit(self: *Section) void {
@@ -40,7 +132,7 @@ pub const Section = struct {
             try self.setValue(key_value.key, value);
     }
 
-    pub fn deleteKey(self: *Section, key: []const u8) !void {
+    pub fn deleteKey(self: *Section, key: []const u8) void {
         _ = self.content.remove(key);
     }
 };
@@ -52,8 +144,11 @@ test "section" {
     try section1.setValue("name", "jinzhongjia");
     try expect(eql(u8, section1.getValue("name").?, "jinzhongjia"));
 
+    try section1.setWithKeyValue(KeyValue.init("mail", "mail@nvimer.org"));
+    try expect(eql(u8, section1.getValue("mail").?, "mail@nvimer.org"));
+
     try expect(section1.keyExist("name"));
-    try section1.deleteKey("name");
+    section1.deleteKey("name");
     try expect(!section1.keyExist("name"));
 }
 
