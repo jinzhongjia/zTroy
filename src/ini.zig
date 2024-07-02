@@ -1,61 +1,69 @@
 const std = @import("std");
+const string = @import("string.zig");
 const expect = std.testing.expect;
 const eql = std.mem.eql;
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 
+pub const KeyValueHashMap = std.StringHashMap([]const u8);
+
 pub const Section = struct {
     name: []const u8,
-    values: ?[]const KeyValue,
+    content: KeyValueHashMap,
 
-    pub fn cpy(self: Section, allocator: Allocator) !Section {
-        var new_name = try allocator.alloc(u8, self.name.len);
-        errdefer allocator.free(new_name);
-        @memcpy(new_name[0..], self.name[0..]);
-
-        var res: Section = undefined;
-        res.name = new_name;
-        res.values = null;
-
-        if (self.values) |val| {
-            const values = try allocator.alloc(KeyValue, val.len);
-            for (0..val.len) |index| {
-                values[index] = try val[index].cpy(allocator);
-            }
-
-            res.values = values;
-        }
-
-        return res;
+    /// init the section, note the name will not owner by section
+    /// but section will use param name
+    pub fn init(name: []const u8, allocator: Allocator) Section {
+        return .{ .name = name, .content = KeyValueHashMap.init(allocator) };
     }
 
-    pub fn free(self: Section, allocator: Allocator) void {
-        allocator.free(self.name);
-        if (self.values) |val| {
-            for (0..val.len) |index| {
-                val[index].free(allocator);
-            }
-            allocator.free(val);
-        }
+    pub fn deinit(self: *Section) void {
+        self.content.deinit();
+    }
+
+    pub fn getValue(self: *Section, key: []const u8) ?[]const u8 {
+        if (self.content.getEntry(key)) |entry|
+            return entry.value_ptr.*;
+        return null;
+    }
+
+    pub fn keyExist(self: *Section, key: []const u8) bool {
+        return self.content.getKey(key) != null;
+    }
+
+    pub fn setValue(self: *Section, key: []const u8, value: []const u8) !void {
+        try self.content.put(key, value);
+    }
+
+    pub fn setWithKeyValue(self: *Section, key_value: KeyValue) !void {
+        if (key_value.value) |value|
+            try self.setValue(key_value.key, value);
+    }
+
+    pub fn deleteKey(self: *Section, key: []const u8) !void {
+        _ = self.content.remove(key);
     }
 };
 
 test "section" {
-    const n1 = Section{
-        .name = "group1",
-        .values = &.{.{
-            .key = "mail",
-            .value = "mail@nvime.org",
-        }},
-    };
+    var section1 = Section.init("general", std.testing.allocator);
+    defer section1.deinit();
 
-    const n2 = try n1.cpy(std.testing.allocator);
-    n2.free(std.testing.allocator);
+    try section1.setValue("name", "jinzhongjia");
+    try expect(eql(u8, section1.getValue("name").?, "jinzhongjia"));
+
+    try expect(section1.keyExist("name"));
+    try section1.deleteKey("name");
+    try expect(!section1.keyExist("name"));
 }
 
 pub const KeyValue = struct {
     key: []const u8,
     value: ?[]const u8,
+
+    pub fn init(key: []const u8, value: ?[]const u8) KeyValue {
+        return .{ .key = key, .value = value };
+    }
 
     pub fn cpy(self: KeyValue, allocator: Allocator) !KeyValue {
         var new_key = try allocator.alloc(u8, self.key.len);
@@ -97,13 +105,11 @@ pub const LineStruct = union(enum) {
     key_value: KeyValue,
 };
 
-const SPACE = 32;
-
 /// this function will parse a line
 /// when return null, that mean current line is whitespace or comment
 pub fn parseLine(line: []const u8) ?LineStruct {
     const no_comment_str = trimComment(line) orelse return null;
-    const no_whitespace_str = trim(no_comment_str) orelse return null;
+    const no_whitespace_str = string.trim(no_comment_str) orelse return null;
 
     if (checkSection(no_whitespace_str, false, false)) |section_name| {
         return LineStruct{
@@ -139,7 +145,7 @@ test "parse line" {
 /// both key can not be null, that mean this is an error
 pub fn getKeyValue(str: []const u8, comment: bool, white: bool) ?KeyValue {
     const no_comment_str = if (comment) trimComment(str) orelse return null else str;
-    const no_whitespace_str = if (white) trim(no_comment_str) orelse return null else no_comment_str;
+    const no_whitespace_str = if (white) string.trim(no_comment_str) orelse return null else no_comment_str;
 
     const nstr = no_whitespace_str;
     const len = nstr.len;
@@ -149,8 +155,8 @@ pub fn getKeyValue(str: []const u8, comment: bool, white: bool) ?KeyValue {
             if (index == 0)
                 return null;
             return KeyValue{
-                .key = trim(nstr[0..index]).?,
-                .value = if (index + 1 == len) null else trim(nstr[index + 1 ..]),
+                .key = string.trim(nstr[0..index]).?,
+                .value = if (index + 1 == len) null else string.trim(nstr[index + 1 ..]),
             };
         }
     }
@@ -168,7 +174,7 @@ test "get key value" {
 /// white is whether trim whitespace
 pub fn checkSection(str: []const u8, comment: bool, white: bool) ?[]const u8 {
     const no_comment_str = if (comment) trimComment(str) orelse return null else str;
-    const no_whitespace_str = if (white) trim(no_comment_str) orelse return null else no_comment_str;
+    const no_whitespace_str = if (white) string.trim(no_comment_str) orelse return null else no_comment_str;
 
     if (no_whitespace_str.len < 3)
         return null;
@@ -203,35 +209,4 @@ test "trim comment" {
     try expect(std.mem.eql(u8, trimComment("ll;kkk").?, "ll"));
     try expect(trimComment("#kk") == null);
     try expect(trimComment(";kk") == null);
-}
-
-/// trim the whitespace, when return null, str is whitespace
-pub fn trim(str: []const u8) ?[]const u8 {
-    var head: usize = 0;
-    var head_ok = false;
-    var tail: usize = 0;
-    var tail_ok = false;
-
-    const str_len = str.len;
-    for (0..str_len) |index| {
-        if (!head_ok and str[index] != SPACE) {
-            head = index;
-            head_ok = true;
-        }
-
-        if (!tail_ok and str[str_len - 1 - index] != SPACE) {
-            tail = str_len - index;
-            tail_ok = true;
-        }
-    }
-
-    if (head == 0 and tail == 0) return null;
-
-    return str[head..tail];
-}
-
-test "test trim" {
-    try std.testing.expect(' ' == SPACE);
-    try std.testing.expect(std.mem.eql(u8, trim("  kk   ").?, "kk"));
-    try std.testing.expect(trim("   ") == null);
 }
