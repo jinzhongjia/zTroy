@@ -3,3 +3,4 @@ pub const file = @import("file.zig");
 pub const dir = @import("dir.zig");
 pub const zig = @import("zig.zig");
 pub const string = @import("string.zig");
+pub const sort = @import("sort.zig");
