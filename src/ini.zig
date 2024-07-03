@@ -22,8 +22,8 @@ pub const INI = struct {
     /// deinit the ini struct
     pub fn deinit(self: *INI) void {
         defer self.content.deinit();
-        var iterate = self.content.iterator();
-        while (iterate.next()) |section|
+        var itera = self.iterate();
+        while (itera.next()) |section|
             section.value_ptr.deinit();
     }
 
@@ -65,11 +65,9 @@ pub const INI = struct {
         }
     }
 
-    // pub fn parseFile(self: *Section, file: File) !void {
-    //     const line = try file.reader().readUntilDelimiterOrEofAlloc(self.allocator, '\n', 150);
-    //     defer self.allocator.free(line);
-    //     if (parseLine(line)) |val| {}
-    // }
+    pub fn iterate(self: *INI) SectionHashMap.Iterator {
+        return self.content.iterator();
+    }
 };
 
 test "INI test" {
@@ -86,6 +84,11 @@ test "INI test" {
 
     ini.getSection("general").?.deleteKey("name");
     try expect(ini.getSectionKeyValue("general", "name") == null);
+
+    var itera = ini.iterate();
+    while (itera.next()) |entry| {
+        try expect(eql(u8, entry.key_ptr.*, "general"));
+    }
 
     try expect(ini.sectionExist("general"));
 
@@ -134,6 +137,10 @@ pub const Section = struct {
 
     pub fn deleteKey(self: *Section, key: []const u8) void {
         _ = self.content.remove(key);
+    }
+
+    pub fn iterate(self: *Section) KeyValueHashMap.Iterator {
+        return self.content.iterator();
     }
 };
 

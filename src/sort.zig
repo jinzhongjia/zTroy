@@ -6,6 +6,7 @@ const relation = enum {
     small,
 };
 
+/// quicksort for anything
 pub fn quickSort(
     comptime T: type,
     slice: []T,
