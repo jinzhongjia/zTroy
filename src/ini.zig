@@ -8,6 +8,8 @@ const Allocator = std.mem.Allocator;
 pub const KeyValueHashMap = std.StringHashMap([]const u8);
 pub const SectionHashMap = std.StringHashMap(Section);
 
+const ArrayListU8 = std.ArrayList(u8);
+
 pub const INI = struct {
     content: SectionHashMap,
     allocator: Allocator,
@@ -100,6 +102,23 @@ pub const INI = struct {
 
         return ini;
     }
+
+    pub fn toStr(self: *INI, allocator: Allocator) ![]const u8 {
+        var str = ArrayListU8.init(allocator);
+        var itera = self.iterate();
+        var first_line = true;
+        while (itera.next()) |section| {
+            if (first_line) {
+                first_line = false;
+            } else {
+                try str.append('\n');
+            }
+            const section_str = try section.value_ptr.toStr(allocator);
+            defer allocator.free(section_str);
+            try str.appendSlice(section_str);
+        }
+        return try str.toOwnedSlice();
+    }
 };
 
 test "INI test" {
@@ -123,6 +142,11 @@ test "INI test" {
     }
 
     try expect(ini.sectionExist("general"));
+
+    const ini_str = try ini.toStr(std.testing.allocator);
+    defer std.testing.allocator.free(ini_str);
+
+    try expect(eql(u8, ini_str, "[general]\nmail=mail@nvimer.org"));
 
     ini.deleteSection("general");
 
@@ -201,21 +225,40 @@ pub const Section = struct {
     pub fn iterate(self: *Section) KeyValueHashMap.Iterator {
         return self.content.iterator();
     }
+
+    pub fn toStr(self: *Section, allocator: Allocator) ![]const u8 {
+        var str = ArrayListU8.init(allocator);
+        try str.append('[');
+        try str.appendSlice(self.name);
+        try str.append(']');
+        var itera = self.iterate();
+        while (itera.next()) |entry| {
+            try str.append('\n');
+            try str.appendSlice(entry.key_ptr.*);
+            try str.append('=');
+            try str.appendSlice(entry.value_ptr.*);
+        }
+        return try str.toOwnedSlice();
+    }
 };
 
 test "section" {
-    var section1 = Section.init("general", std.testing.allocator);
-    defer section1.deinit();
+    var section = Section.init("general", std.testing.allocator);
+    defer section.deinit();
 
-    try section1.setValue("name", "jinzhongjia");
-    try expect(eql(u8, section1.getValue("name").?, "jinzhongjia"));
+    try section.setValue("name", "jinzhongjia");
+    try expect(eql(u8, section.getValue("name").?, "jinzhongjia"));
 
-    try section1.setWithKeyValue(KeyValue.init("mail", "mail@nvimer.org"));
-    try expect(eql(u8, section1.getValue("mail").?, "mail@nvimer.org"));
+    try section.setWithKeyValue(KeyValue.init("mail", "mail@nvimer.org"));
+    try expect(eql(u8, section.getValue("mail").?, "mail@nvimer.org"));
 
-    try expect(section1.keyExist("name"));
-    section1.deleteKey("name");
-    try expect(!section1.keyExist("name"));
+    try expect(section.keyExist("name"));
+    section.deleteKey("name");
+    try expect(!section.keyExist("name"));
+
+    const str = try section.toStr(std.testing.allocator);
+    defer std.testing.allocator.free(str);
+    try expect(eql(u8, str, "[general]\nmail=mail@nvimer.org"));
 }
 
 pub const KeyValue = struct {
