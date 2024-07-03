@@ -20,11 +20,20 @@ pub const INI = struct {
     }
 
     /// deinit the ini struct
-    pub fn deinit(self: *INI) void {
+    pub fn deinit(self: *INI, is_file: bool) void {
         defer self.content.deinit();
         var itera = self.iterate();
-        while (itera.next()) |section|
-            section.value_ptr.deinit();
+        while (itera.next()) |section| {
+            defer section.value_ptr.deinit();
+            if (is_file) {
+                self.allocator.free(section.key_ptr.*);
+                var section_itera = section.value_ptr.iterate();
+                while (section_itera.next()) |key_value| {
+                    self.allocator.free(key_value.key_ptr.*);
+                    self.allocator.free(key_value.value_ptr.*);
+                }
+            }
+        }
     }
 
     pub fn sectionExist(self: *INI, name: []const u8) bool {
@@ -68,11 +77,34 @@ pub const INI = struct {
     pub fn iterate(self: *INI) SectionHashMap.Iterator {
         return self.content.iterator();
     }
+
+    pub fn parseFile(allocator: Allocator, file: File) !INI {
+        var ini = INI.init(allocator);
+        errdefer ini.deinit(true);
+
+        const file_reader = file.reader();
+        var current_section: ?[]const u8 = null;
+        while (try file_reader.readUntilDelimiterOrEofAlloc(allocator, '\n', 100)) |line| {
+            defer allocator.free(line);
+            const val = parseLine(line) orelse continue;
+            if (val == .section) {
+                current_section = try allocator.dupe(u8, val.section);
+                continue;
+            }
+
+            if (current_section) |tmp_val| {
+                const new_key_value = try val.key_value.cpy(allocator);
+                try ini.setSectionWithKeyValue(tmp_val, new_key_value);
+            }
+        }
+
+        return ini;
+    }
 };
 
 test "INI test" {
     var ini = INI.init(std.testing.allocator);
-    defer ini.deinit();
+    defer ini.deinit(false);
 
     try expect(!ini.sectionExist("general"));
 
@@ -95,6 +127,33 @@ test "INI test" {
     ini.deleteSection("general");
 
     try expect(!ini.sectionExist("general"));
+}
+
+test "parse ini file" {
+    const testing = std.testing;
+
+    const file_name = "test.ini";
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var tmp_dir = tmp.dir;
+    var tmp_file = try tmp_dir.createFile(file_name, .{ .read = true });
+    _ = try tmp_file.write(
+        \\[general]
+        \\name=jinzhongjia
+        \\mail=mail@nvimer.org
+        \\[config]
+        \\enable=true
+    );
+    tmp_file.close();
+
+    var open_file = try tmp_dir.openFile(file_name, .{});
+    defer open_file.close();
+    var ini = try INI.parseFile(std.testing.allocator, open_file);
+    defer ini.deinit(true);
+
+    try expect(eql(u8, ini.getSectionKeyValue("general", "name").?, "jinzhongjia"));
+    try expect(eql(u8, ini.getSectionKeyValue("config", "enable").?, "true"));
 }
 
 pub const Section = struct {
@@ -209,6 +268,7 @@ pub const LineStruct = union(enum) {
 
 /// this function will parse a line
 /// when return null, that mean current line is whitespace or comment
+/// A lower-level API that may be more efficient in embedded devices
 pub fn parseLine(line: []const u8) ?LineStruct {
     const no_comment_str = trimComment(line) orelse return null;
     const no_whitespace_str = string.trim(no_comment_str) orelse return null;
