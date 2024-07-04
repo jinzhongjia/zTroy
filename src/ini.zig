@@ -5,7 +5,7 @@ const eql = std.mem.eql;
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 
-pub const KeyValueHashMap = std.StringHashMap([]const u8);
+pub const KeyValueHashMap = std.StringHashMap(?[]const u8);
 pub const SectionHashMap = std.StringHashMap(Section);
 
 const ArrayListU8 = std.ArrayList(u8);
@@ -32,7 +32,8 @@ pub const INI = struct {
                 var section_itera = section.value_ptr.iterate();
                 while (section_itera.next()) |key_value| {
                     self.allocator.free(key_value.key_ptr.*);
-                    self.allocator.free(key_value.value_ptr.*);
+                    if (key_value.value_ptr.*) |val|
+                        self.allocator.free(val);
                 }
             }
         }
@@ -51,7 +52,7 @@ pub const INI = struct {
         return self.content.getPtr(name);
     }
 
-    pub fn setSectionKeyValue(self: *INI, name: []const u8, key: []const u8, value: []const u8) !void {
+    pub fn setSectionKeyValue(self: *INI, name: []const u8, key: []const u8, value: ?[]const u8) !void {
         const result = try self.content.getOrPut(name);
         if (!result.found_existing)
             result.value_ptr.* = Section.init(name, self.allocator);
@@ -209,13 +210,12 @@ pub const Section = struct {
         return self.content.getKey(key) != null;
     }
 
-    pub fn setValue(self: *Section, key: []const u8, value: []const u8) !void {
+    pub fn setValue(self: *Section, key: []const u8, value: ?[]const u8) !void {
         try self.content.put(key, value);
     }
 
     pub fn setWithKeyValue(self: *Section, key_value: KeyValue) !void {
-        if (key_value.value) |value|
-            try self.setValue(key_value.key, value);
+        try self.setValue(key_value.key, key_value.value);
     }
 
     pub fn deleteKey(self: *Section, key: []const u8) void {
@@ -236,7 +236,8 @@ pub const Section = struct {
             try str.append('\n');
             try str.appendSlice(entry.key_ptr.*);
             try str.append('=');
-            try str.appendSlice(entry.value_ptr.*);
+            if (entry.value_ptr.*) |val|
+                try str.appendSlice(val);
         }
         return try str.toOwnedSlice();
     }
